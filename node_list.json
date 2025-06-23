@@ -1,0 +1,18 @@
+{
+    "custom_nodes": [
+        {
+            "author": "Limbicnation",
+            "title": "ComfyUI Face Detection Node",
+            "reference": "https://github.com/Limbicnation/ComfyUI_FaceDetectionNode",
+            "files": [
+                "https://github.com/Limbicnation/ComfyUI_FaceDetectionNode"
+            ],
+            "install_type": "git-clone",
+            "description": "A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades, with full ComfyUI v3 schema support and backward compatibility.",
+            "nodes": [
+                "Face Detection and Crop"
+            ],
+            "nodename_pattern": "FaceDetectionNode"
+        }
+    ]
+}
