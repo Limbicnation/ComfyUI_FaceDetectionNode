@@ -1,2 +1,2 @@
 # ComfyUI_FaceDetectionNode
-Face detection and cropping node for ComfyUI using OpenCV Haar cascades. Supports v3 schema with    backward compatibility for v1/v2 workflows.
+ComfyUI Face Detection Node - OpenCV-based face detection and cropping with ComfyUI v3 schema support and backward compatibility
