@@ -47,11 +47,13 @@ except ImportError:
 #### Face Detection Logic
 - **Cascade Classifiers**: Uses OpenCV Haar cascades with dual classifier support (default/alternative)
 - **Stateless Execution**: Core detection methods are static for v3 compatibility
+- **Shared Processing**: `_process_individual_faces()` method handles consistent face batching for both v1/v2 and v3
 - **Image Processing Pipeline**: 
   - Tensor → NumPy conversion with proper format handling
   - Grayscale conversion for detection
   - Face cropping with configurable padding
   - Multi-face handling (largest face or all faces)
+  - Individual face processing with consistent dimensions (512px max)
 
 ### Input/Output Handling
 - **Input**: RGB images as PyTorch tensors in [B, H, W, C] format
@@ -73,7 +75,14 @@ except ImportError:
 - `padding`: 0-256 pixels (padding around faces)
 - `output_mode`: "largest_face" or "all_faces"
 - `face_output_format`: "strip" (horizontal arrangement) or "individual" (separate batch items)
+  - **Note**: Only applies when `output_mode="all_faces"` with multiple faces detected
+  - **Limitation**: Individual faces are resized to max 512px dimensions for memory efficiency
 - `classifier_type`: "default" or "alternative" Haar cascade
+
+### Parameter Interaction Behavior
+- When `output_mode="largest_face"`: The `face_output_format` parameter is ignored (only one face output)
+- When `output_mode="all_faces"` + `face_output_format="strip"`: Faces arranged horizontally in single image
+- When `output_mode="all_faces"` + `face_output_format="individual"`: Each face as separate batch item [N, H, W, C]
 
 ### Error Handling Patterns
 - Cascade classifier validation with fallback mechanisms

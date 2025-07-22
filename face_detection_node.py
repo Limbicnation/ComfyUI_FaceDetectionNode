@@ -58,7 +58,7 @@ if COMFY_V3_AVAILABLE:
                     ComboInput("output_mode", options=["largest_face", "all_faces"],
                               tooltip="Output mode for detected faces"),
                     ComboInput("face_output_format", options=["strip", "individual"],
-                              tooltip="Format for multiple faces: strip (horizontal) or individual images",
+                              tooltip="Format for multiple faces: strip (horizontal layout) or individual (separate batch items). Only applies when output_mode='all_faces'. Max size: 512px.",
                               behavior=InputBehavior.optional),
                     ComboInput("classifier_type", options=["default", "alternative"],
                               behavior=InputBehavior.optional),
@@ -117,6 +117,50 @@ if COMFY_V3_AVAILABLE:
             y2 = min(height, y + h + padding)
             
             return image[y1:y2, x1:x2], (x1, y1, x2-x1, y2-y1)
+
+        @staticmethod
+        def _process_individual_faces(cropped_faces: List[np.ndarray]) -> torch.Tensor:
+            """
+            Process multiple faces into individual batch items with consistent dimensions.
+            
+            Args:
+                cropped_faces: List of face images as numpy arrays
+                
+            Returns:
+                Tensor with shape [N, H, W, C] where N is the number of faces
+                
+            Note:
+                - Faces are resized to consistent dimensions (max 512px) for proper batching
+                - All faces maintain their aspect ratios during resizing to target dimensions
+            """
+            # Resize all faces to consistent dimensions for proper batching
+            # Use 512px as maximum to balance quality with memory usage
+            max_height = min(512, max(face.shape[0] for face in cropped_faces))
+            max_width = min(512, max(face.shape[1] for face in cropped_faces))
+            
+            # Use the maximum dimensions to ensure consistent sizing
+            target_size = (max_width, max_height)
+            resized_faces = []
+            for face in cropped_faces:
+                resized = cv2.resize(face, target_size)
+                resized_faces.append(resized)
+            
+            # Stack faces as batch dimension [N, H, W, C]
+            result_batch = np.stack(resized_faces, axis=0)
+            
+            # Ensure correct channel count for each face
+            if result_batch.shape[3] == 1:
+                result_batch = np.repeat(result_batch, 3, axis=3)
+            elif result_batch.shape[3] == 4:
+                result_batch = result_batch[:, :, :, :3]
+            
+            # Convert to tensor with proper dimensions [B, H, W, C]
+            result = torch.from_numpy(result_batch).float() / 255.0
+            
+            # Validate output tensor
+            assert result.shape[3] == 3, f"Output must have 3 channels, got {result.shape[3]}"
+            
+            return result
 
         @classmethod
         async def execute(cls, image: torch.Tensor, detection_threshold: float, min_face_size: int, 
@@ -212,34 +256,9 @@ if COMFY_V3_AVAILABLE:
                 cropped_faces = [largest_face]
 
             # Enhanced result handling with support for individual face outputs
+            # Note: face_output_format only applies when output_mode="all_faces" with multiple faces
             if output_mode == "all_faces" and len(cropped_faces) > 1 and face_output_format == "individual":
-                # Return individual faces as separate batch items
-                # Resize all faces to consistent dimensions for proper batching
-                max_height = min(512, max(face.shape[0] for face in cropped_faces))
-                max_width = min(512, max(face.shape[1] for face in cropped_faces))
-                
-                # Use the maximum dimensions to ensure consistent sizing
-                target_size = (max_width, max_height)
-                resized_faces = []
-                for face in cropped_faces:
-                    resized = cv2.resize(face, target_size)
-                    resized_faces.append(resized)
-                
-                # Stack faces as batch dimension [N, H, W, C]
-                result_batch = np.stack(resized_faces, axis=0)
-                
-                # Ensure correct channel count for each face
-                if result_batch.shape[3] == 1:
-                    result_batch = np.repeat(result_batch, 3, axis=3)
-                elif result_batch.shape[3] == 4:
-                    result_batch = result_batch[:, :, :, :3]
-                
-                # Convert to tensor with proper dimensions [B, H, W, C]
-                result = torch.from_numpy(result_batch).float() / 255.0
-                
-                # Validate output tensor
-                assert result.shape[3] == 3, f"Output must have 3 channels, got {result.shape[3]}"
-                
+                result = cls._process_individual_faces(cropped_faces)
                 return NodeOutput(cropped_faces=result)
                 
             elif len(cropped_faces) > 1:
@@ -357,6 +376,37 @@ class FaceDetectionNodeV1:
         
         return image[y1:y2, x1:x2], (x1, y1, x2-x1, y2-y1)
 
+    def _process_individual_faces(self, cropped_faces: List[np.ndarray]) -> torch.Tensor:
+        """
+        Process multiple faces into individual batch items with consistent dimensions.
+        Shared logic between v1/v2 and v3 implementations.
+        """
+        if COMFY_V3_AVAILABLE:
+            # Use the static method from the v3 class
+            return FaceDetectionNode._process_individual_faces(cropped_faces)
+        else:
+            # Fallback implementation for v1/v2 only environments
+            max_height = min(512, max(face.shape[0] for face in cropped_faces))
+            max_width = min(512, max(face.shape[1] for face in cropped_faces))
+            
+            target_size = (max_width, max_height)
+            resized_faces = []
+            for face in cropped_faces:
+                resized = cv2.resize(face, target_size)
+                resized_faces.append(resized)
+            
+            result_batch = np.stack(resized_faces, axis=0)
+            
+            if result_batch.shape[3] == 1:
+                result_batch = np.repeat(result_batch, 3, axis=3)
+            elif result_batch.shape[3] == 4:
+                result_batch = result_batch[:, :, :, :3]
+            
+            result = torch.from_numpy(result_batch).float() / 255.0
+            assert result.shape[3] == 3, f"Output must have 3 channels, got {result.shape[3]}"
+            
+            return result
+
     def detect_and_crop_faces(self, image, detection_threshold, min_face_size, padding, output_mode, face_output_format="strip", classifier_type="default"):
         """Legacy method for v1/v2 compatibility"""
         
@@ -446,34 +496,9 @@ class FaceDetectionNodeV1:
             cropped_faces = [largest_face]
 
         # Enhanced result handling with support for individual face outputs
+        # Note: face_output_format only applies when output_mode="all_faces" with multiple faces
         if output_mode == "all_faces" and len(cropped_faces) > 1 and face_output_format == "individual":
-            # Return individual faces as separate batch items
-            # Resize all faces to consistent dimensions for proper batching
-            max_height = min(512, max(face.shape[0] for face in cropped_faces))
-            max_width = min(512, max(face.shape[1] for face in cropped_faces))
-            
-            # Use the maximum dimensions to ensure consistent sizing
-            target_size = (max_width, max_height)
-            resized_faces = []
-            for face in cropped_faces:
-                resized = cv2.resize(face, target_size)
-                resized_faces.append(resized)
-            
-            # Stack faces as batch dimension [N, H, W, C]
-            result_batch = np.stack(resized_faces, axis=0)
-            
-            # Ensure correct channel count for each face
-            if result_batch.shape[3] == 1:
-                result_batch = np.repeat(result_batch, 3, axis=3)
-            elif result_batch.shape[3] == 4:
-                result_batch = result_batch[:, :, :, :3]
-            
-            # Convert to tensor with proper dimensions [B, H, W, C]
-            result = torch.from_numpy(result_batch).float() / 255.0
-            
-            # Validate output tensor
-            assert result.shape[3] == 3, f"Output must have 3 channels, got {result.shape[3]}"
-            
+            result = self._process_individual_faces(cropped_faces)
             return (result,)
             
         elif len(cropped_faces) > 1:
