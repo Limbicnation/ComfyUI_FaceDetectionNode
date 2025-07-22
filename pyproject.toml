@@ -11,5 +11,5 @@ Repository = "https://github.com/Limbicnation/ComfyUI_FaceDetectionNode"
 
 [tool.comfy]
 PublisherId = "Limbicnation"
-DisplayName = "ComfyUI_FaceDetectionNode"
+DisplayName = "Face Detection Node"
 Icon = ""
