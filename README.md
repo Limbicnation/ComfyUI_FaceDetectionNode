@@ -3,6 +3,7 @@
 A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades, with full ComfyUI v3 schema support and backward compatibility.
 
 ![Face Detection Output Example](images/combined_strip.jpg)
+![Face Detection Output Example](images/comfyui_face_detection_node.png)
 
 ## Features
 
