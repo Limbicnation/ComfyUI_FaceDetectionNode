@@ -12,4 +12,4 @@ Repository = "https://github.com/Limbicnation/ComfyUI_FaceDetectionNode"
 [tool.comfy]
 PublisherId = "limbicnation"
 DisplayName = "Face Detection Node"
-Icon = ""
+Icon = "https://raw.githubusercontent.com/Limbicnation/ComfyUI_FaceDetectionNode/main/icon.png"
