@@ -56,7 +56,9 @@ except ImportError:
 ### Input/Output Handling
 - **Input**: RGB images as PyTorch tensors in [B, H, W, C] format
 - **Processing**: OpenCV operations on NumPy arrays
-- **Output**: Cropped face images as tensors, properly formatted for ComfyUI pipeline
+- **Output**: Cropped face images as tensors, with two format options:
+  - **Strip format**: Single image with faces arranged horizontally [1, H, W, C]
+  - **Individual format**: Batch of individual faces [N, H, W, C] where N is the number of faces
 
 ### ComfyUI Integration Files
 - **`__init__.py`**: Exports node mappings for ComfyUI discovery
@@ -70,6 +72,7 @@ except ImportError:
 - `min_face_size`: 32-512 pixels (minimum face size)
 - `padding`: 0-256 pixels (padding around faces)
 - `output_mode`: "largest_face" or "all_faces"
+- `face_output_format`: "strip" (horizontal arrangement) or "individual" (separate batch items)
 - `classifier_type`: "default" or "alternative" Haar cascade
 
 ### Error Handling Patterns
