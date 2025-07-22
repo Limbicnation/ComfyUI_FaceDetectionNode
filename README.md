@@ -64,4 +64,4 @@ A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades
 
 ## License
 
-MIT License - see LICENSE file for details.
+Apache License Version 2.0, January 2004 - see LICENSE file for details.
