@@ -2,6 +2,8 @@
 
 A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades, with full ComfyUI v3 schema support and backward compatibility.
 
+![Face Detection Output Example](images/combined_strip.jpg)
+
 ## Features
 
 - **Face Detection**: Uses OpenCV Haar cascade classifiers for robust face detection
@@ -36,6 +38,7 @@ A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades
    - **Min Face Size**: Minimum face size in pixels (32-512)
    - **Padding**: Padding around detected faces (0-256)
    - **Output Mode**: "largest_face" or "all_faces"
+   - **Face Output Format**: "strip" (horizontal layout) or "individual" (separate batch items)
    - **Classifier Type**: "default" or "alternative"
 
 ## Parameters
@@ -46,6 +49,7 @@ A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades
 | min_face_size | Int | 32-512 | 64 | Minimum size for detected faces |
 | padding | Int | 0-256 | 32 | Padding around detected faces |
 | output_mode | Combo | - | largest_face | Output mode for detected faces |
+| face_output_format | Combo | - | strip | Format for multiple faces (strip/individual) |
 | classifier_type | Combo | - | default | Haar cascade classifier type |
 
 ## Compatibility
