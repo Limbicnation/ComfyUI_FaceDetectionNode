@@ -1,7 +1,19 @@
 """
 FaceDetectionNode — Optimized for H100 Cloud & LTX-Video Avatar Pipelines
 ========================================================================
-Version: 2.1.0
+Version: 2.1.1
+
+CHANGELOG from v2.1.0 → v2.1.1:
+  1. FIX: temporal_smoothing input validation error — moved to optional section in
+     INPUT_TYPES to prevent ComfyUI framework-level int() coercion crash when legacy
+     workflows pass string "default" (from classifier_type) into this INT slot via
+     positional widgets_values mapping.
+  2. FIX: Added _coerce_int() helper for safe string→int conversion with fallback
+     to defaults. Applied defensively in both v1 and v3 execute methods.
+  3. FIX: Added VALIDATE_INPUTS to FaceDetectionNodeV1 to handle type mismatches
+     gracefully (was only handling face_output_format before).
+  4. FIX: Pre-existing ClassVar type annotation syntax error in limbicnation copy
+     (ClassVar[bool = False] → ClassVar[bool] = False).
 
 CHANGELOG from v2.0.0 → v2.1.0:
   1. BACKWARD-COMPAT: Re-added optional `face_output_format` param (strip/individual)
@@ -72,6 +84,40 @@ ASPECT_RATIOS: dict[str, Optional[float]] = {
 # ──────────────────────────────────────────────────────────────────────────────
 _VALID_FACE_OUTPUT_FORMATS = ("strip", "individual")
 _DEFAULT_FACE_OUTPUT_FORMAT = "strip"
+
+# Default values for INT inputs — used by _coerce_int when legacy workflows
+# pass string values (e.g. "default" from classifier_type) into INT slots.
+_INT_DEFAULTS: dict[str, int] = {
+    "temporal_smoothing": 0,
+    "auto_padding_ratio": 35,
+    "min_face_size": 64,
+    "output_height": 512,
+    "instance_id": 0,
+    "padding": 0,
+}
+
+
+def _coerce_int(value, name: str, default: int | None = None) -> int:
+    """Safely coerce a value to int, falling back to default on failure.
+
+    Handles the case where ComfyUI's positional widgets_values mapping
+    places a string (e.g. 'default' from classifier_type) onto an INT input.
+    """
+    if isinstance(value, int):
+        return value
+    if default is None:
+        default = _INT_DEFAULTS.get(name, 0)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        logger.warning(
+            "FaceDetectionNode: %s='%s' is not a valid INT, "
+            "falling back to default=%d",
+            name, value, default,
+        )
+        return default
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Temporal smoothing state
@@ -399,12 +445,18 @@ if COMFY_V3:
             aspect_ratio: str,
             output_mode: str,
             face_output_format: str = "strip",
-            temporal_smoothing: int = 70,
-            output_height: int = 512,
-            instance_id: int = 0,
+            temporal_smoothing=70,
+            output_height=512,
+            instance_id=0,
             classifier_type: str = "default",
-            padding: int = 0,
+            padding=0,
         ) -> NodeOutput:
+            # Defensive: coerce INT inputs that may arrive as strings
+            temporal_smoothing = _coerce_int(temporal_smoothing, "temporal_smoothing", 70)
+            output_height = _coerce_int(output_height, "output_height", 512)
+            instance_id = _coerce_int(instance_id, "instance_id", 0)
+            padding = _coerce_int(padding, "padding", 0)
+
             target_ratio = ASPECT_RATIOS.get(aspect_ratio, None)
 
             # Resolve padding: legacy padding (px) overrides auto_padding_ratio if > 0
@@ -619,6 +671,15 @@ class FaceDetectionNodeV1:
                 "output_mode": ([["largest_face", "all_faces"]], {
                     "default": "largest_face",
                 }),
+                "classifier_type": ([["default", "alternative"]], {
+                    "default": "default",
+                }),
+            },
+            "optional": {
+                # temporal_smoothing is optional to prevent ComfyUI's framework-level
+                # int() coercion from crashing on legacy workflows that pass "default"
+                # (from classifier_type) into this slot via positional widgets_values.
+                # VALIDATE_INPUTS handles the coercion instead.
                 "temporal_smoothing": ("INT", {
                     "default": 0, "min": 0, "max": 100,
                     "tooltip": "0=disabled (image mode) | 1-100: EMA smoothing strength",
@@ -630,11 +691,6 @@ class FaceDetectionNodeV1:
                     "default": 0, "min": 0, "max": 9999,
                     "tooltip": "Unique ID for temporal smoothing across video frames",
                 }),
-                "classifier_type": ([["default", "alternative"]], {
-                    "default": "default",
-                }),
-            },
-            "optional": {
                 # Backward compat: old v1.x workflows pass this
                 "face_output_format": (["strip", "individual"], {
                     "default": "strip",
@@ -656,8 +712,26 @@ class FaceDetectionNodeV1:
     DESCRIPTION = "Face Detection v2 — Auto-Padding, Temporal Smoothing, Aspect Ratios, Batch Processing"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, face_output_format=None, padding=None, **kwargs):
-        """Validate optional inputs — gracefully handle invalid legacy values."""
+    def VALIDATE_INPUTS(cls, face_output_format=None, padding=None,
+                        temporal_smoothing=None, output_height=None,
+                        instance_id=None, **kwargs):
+        """Validate optional inputs — gracefully handle type mismatches.
+
+        When ComfyUI loads an old workflow, widgets_values are mapped positionally.
+        This can cause string values (e.g. 'default' from classifier_type) to land
+        on INT-typed inputs. We coerce or fall back to defaults here so the
+        framework validation doesn't crash.
+        """
+        # Coerce INT inputs that may arrive as strings from positional widget mapping
+        for name, val in [
+            ("temporal_smoothing", temporal_smoothing),
+            ("output_height", output_height),
+            ("instance_id", instance_id),
+            ("padding", padding),
+        ]:
+            if val is not None and not isinstance(val, int):
+                _coerce_int(val, name)  # logs warning on failure, returns default
+
         if face_output_format is not None:
             if face_output_format not in _VALID_FACE_OUTPUT_FORMATS:
                 logger.warning(
@@ -685,13 +759,19 @@ class FaceDetectionNodeV1:
         auto_padding_ratio: int,
         aspect_ratio: str,
         output_mode: str,
-        temporal_smoothing: int,
-        output_height: int,
-        instance_id: int,
         classifier_type: str = "default",
+        temporal_smoothing=None,
+        output_height=None,
+        instance_id=None,
         face_output_format: str = "strip",
-        padding: int = 0,
+        padding=None,
     ):
+        # Defensive: coerce optional INT inputs that may arrive as strings
+        # from legacy workflows with misaligned widgets_values
+        temporal_smoothing = _coerce_int(temporal_smoothing, "temporal_smoothing", 0)
+        output_height = _coerce_int(output_height, "output_height", 512)
+        instance_id = _coerce_int(instance_id, "instance_id", 0)
+        padding = _coerce_int(padding, "padding", 0)
         cascade = CascadeCache.get(classifier_type)
         if cascade is None:
             logger.error("No cascade available")
