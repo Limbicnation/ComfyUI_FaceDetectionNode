@@ -36,7 +36,6 @@ from typing import ClassVar, Optional
 import cv2
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 _log_level = os.getenv("COMFYUI_FACE_DETECTION_LOG_LEVEL", "INFO").upper()
@@ -49,7 +48,7 @@ try:
     from comfy_api.v0_0_3_io import (
         ComfyNode, Schema, InputBehavior, NumberDisplay,
         IntegerInput, FloatInput, ImageInput, ImageOutput,
-        ComboInput, StringInput, NodeOutput,
+        ComboInput, NodeOutput,
     )
     COMFY_V3: bool = True
 except ImportError:
@@ -171,7 +170,6 @@ def detect_faces(
     min_face_size: int = 64,
     detection_threshold: float = 0.8,
     auto_padding_ratio: float = 0.35,
-    classifier_type: str = "default",
     detect_all: bool = False,
 ) -> list[tuple[int, int, int, int]]:
     """
@@ -180,11 +178,10 @@ def detect_faces(
 
     Args:
         image_np:         RGB image as uint8 numpy array (H, W, 3)
-        cascade:          OpenCV CascadeClassifier instance
+        cascade:          OpenCV CascadeClassifier instance (selected via CascadeCache.get() before calling)
         min_face_size:    Minimum face dimension in pixels
         detection_threshold: Scale factor for detectMultiScale (≈ confidence)
         auto_padding_ratio: Padding as fraction of face size (0.35 = 35% face-size padding)
-        classifier_type:  "default" or "alternative"
         detect_all:       If True, return ALL faces. If False, return only the largest.
     """
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
@@ -355,7 +352,7 @@ if COMFY_V3:
                                tooltip="Batch of cropped face tensors [B, H, W, C]"),
                     ImageOutput("face_metadata",
                                display_name="Face Metadata (BBoxes)",
-                               tooltip="Face bounding box coordinates per batch item [B, 6] — x, y, w, h, score, detected"),
+                               tooltip="Per-face [x, y, w, h, score, detected] normalized to image dims. Shape: [B, 6]. NOT an image — use for downstream bbox logic only."),
                 ],
                 is_output_node=True,
             )
@@ -384,29 +381,13 @@ if COMFY_V3:
             return _DEFAULT_FACE_OUTPUT_FORMAT
 
         @classmethod
-        def _tensor_to_numpy(cls, image: torch.Tensor) -> tuple[np.ndarray, int, int, int]:
-            """Convert ComfyUI tensor [B,H,W,C] float [0,1] → numpy [H,W,C] uint8 RGB."""
-            if image.is_cuda:
-                image = image.cpu()
+        def _get_batch_dims(cls, image: torch.Tensor) -> tuple[int, int, int]:
+            """Get (B, H, W) from a ComfyUI image tensor, handling 3D→4D."""
             if image.dim() == 3:
-                image = image.unsqueeze(0)
-            B, H, W, C = image.shape
-
-            # Normalize
-            if image.max() <= 1.0:
-                image = (image * 255).round()
-            image = image.clip(0, 255).to(torch.uint8)
-
-            # Take first item — full batch handled in execute()
-            img_np = image[0].numpy()
-            # Ensure RGB
-            if C == 1:
-                img_np = np.repeat(img_np, 3, axis=2)
-            elif C == 4:
-                img_np = img_np[:, :, :3]
-            elif C > 4:
-                img_np = img_np[:, :, :3]
-            return img_np, B, H, W
+                B, H, W = 1, image.shape[0], image.shape[1]
+            else:
+                B, H, W = image.shape[:3]
+            return B, H, W
 
         @classmethod
         async def execute(
@@ -452,7 +433,7 @@ if COMFY_V3:
             temporal = cls._get_temporal(instance_id, temporal_smoothing)
             smoothing_active = temporal_smoothing > 0
 
-            img_np, B, H, W = cls._tensor_to_numpy(image)
+            B, H, W = cls._get_batch_dims(image)
 
             # Process entire batch
             cropped_list: list[torch.Tensor] = []
@@ -485,7 +466,6 @@ if COMFY_V3:
                     min_face_size=min_face_size,
                     detection_threshold=detection_threshold,
                     auto_padding_ratio=pad_ratio,
-                    classifier_type=classifier_type,
                     detect_all=detect_all,
                 )
 
@@ -523,7 +503,7 @@ if COMFY_V3:
                 # Handle face_output_format
                 if detect_all and len(frame_crops) > 1 and resolved_format == "individual":
                     # Individual: each face as separate batch item
-                    for crop_np in frame_crops:
+                    for idx, crop_np in enumerate(frame_crops):
                         crop_t = (
                             torch.from_numpy(crop_np)
                             .float()
@@ -532,7 +512,7 @@ if COMFY_V3:
                         )
                         cropped_list.append(crop_t)
                         # Metadata for each face
-                        bx, by, bw, bh = smoothed_bboxes[frame_crops.index(crop_np)] if crop_np in frame_crops else (0, 0, 0, 0)
+                        bx, by, bw, bh = smoothed_bboxes[idx]
                         norm_meta = torch.tensor([[
                             bx / max(W, 1), by / max(H, 1),
                             bw / max(W, 1), bh / max(H, 1),
@@ -668,7 +648,7 @@ class FaceDetectionNodeV1:
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "IMAGE")
+    RETURN_TYPES = ("IMAGE", "FLOAT")
     RETURN_NAMES = ("cropped_faces", "face_metadata")
     FUNCTION = "detect_and_crop_faces"
     CATEGORY = "image/processing"
@@ -775,7 +755,6 @@ class FaceDetectionNodeV1:
                 min_face_size=min_face_size,
                 detection_threshold=detection_threshold,
                 auto_padding_ratio=pad_ratio,
-                classifier_type=classifier_type,
                 detect_all=detect_all,
             )
 
