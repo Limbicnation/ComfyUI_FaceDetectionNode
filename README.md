@@ -51,7 +51,7 @@ A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades
 | output_mode | Combo | — | largest_face | `largest_face` or `all_faces` |
 | temporal_smoothing | Int | 0–100 | 0 | 0=disabled (image mode) · 1–100=EMA smoothing strength for video |
 | output_height | Int | 256–2048 | 512 | Output height for cropped faces (width derived from aspect ratio) |
-| instance_id | Int | 0–9999 | 0 | Unique ID for temporal smoothing state across video frames |
+| instance_id | String | — | "0" | Unique ID for temporal smoothing (share across frames). Use "0" for image mode |
 | classifier_type | Combo | — | default | Haar cascade: `default` or `alternative` |
 | face_output_format | Combo | — | strip | `strip` (horizontal) or `individual` (separate batch items) |
 | padding | Int | 0–256 | 0 | Legacy padding in pixels — if >0, overrides `auto_padding_ratio` |
@@ -69,9 +69,12 @@ When processing video frames through ComfyUI, face detection bboxes can jitter f
 
 - Set `temporal_smoothing` to 1–100 (higher = more smoothing)
 - Use a consistent `instance_id` across all frames in the same video sequence
-- Set to `0` for single-image mode (no smoothing)
+- Set to `"0"` for single-image mode (no smoothing)
 
 ## Changelog
+
+### v2.1.2
+- **FIX**: `instance_id` input type changed from INT to STRING. Legacy workflows pass `instance_id="default"` (string) from old v1 nodes — ComfyUI's `validate_inputs` runs before `execute()`, so `_coerce_int` never fires. Since `instance_id` is only a dict key, STRING is the correct type.
 
 ### v2.1.1
 - **FIX**: `temporal_smoothing` input validation error — moved to optional section in `INPUT_TYPES` to prevent ComfyUI framework-level `int()` coercion crash when legacy workflows pass string `"default"` (from `classifier_type`) into this slot via positional `widgets_values` mapping

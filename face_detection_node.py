@@ -1,7 +1,18 @@
 """
 FaceDetectionNode — Optimized for H100 Cloud & LTX-Video Avatar Pipelines
 ========================================================================
-Version: 2.1.1
+Version: 2.1.2
+
+CHANGELOG from v2.1.1 → v2.1.2:
+  1. FIX: instance_id input type changed from INT to STRING. Legacy workflows
+     pass instance_id="default" (string) from old v1 nodes. ComfyUI runs
+     validate_inputs BEFORE execute(), so the in-node _coerce_int fallback
+     never fires — the workflow errors before reaching our handler. Since
+     instance_id is only used as a dict key (f"{instance_id}"), never
+     arithmetic, STRING is the correct type. Accepts any string value now
+     ("0", "default", "session-1", etc.).
+  2. Removed instance_id from _INT_DEFAULTS and VALIDATE_INPUTS INT loop.
+  3. Simplified coercion to str(instance_id) if not None else "0".
 
 CHANGELOG from v2.1.0 → v2.1.1:
   1. FIX: temporal_smoothing input validation error — moved to optional section in
@@ -60,7 +71,7 @@ try:
     from comfy_api.v0_0_3_io import (
         ComfyNode, Schema, InputBehavior, NumberDisplay,
         IntegerInput, FloatInput, ImageInput, ImageOutput,
-        ComboInput, NodeOutput,
+        ComboInput, NodeOutput, StringInput,
     )
     COMFY_V3: bool = True
 except ImportError:
@@ -92,9 +103,9 @@ _INT_DEFAULTS: dict[str, int] = {
     "auto_padding_ratio": 35,
     "min_face_size": 64,
     "output_height": 512,
-    "instance_id": 0,
     "padding": 0,
 }
+# instance_id was removed from _INT_DEFAULTS — it's now STRING type
 
 
 def _coerce_int(value, name: str, default: int | None = None) -> int:
@@ -378,10 +389,10 @@ if COMFY_V3:
                                  display_name="Output Height (px)",
                                  min=256, max=2048, default=512,
                                  tooltip="Output height for cropped faces (width derived from aspect ratio)"),
-                    IntegerInput("instance_id",
+                    StringInput("instance_id",
                                  display_name="Instance ID",
-                                 min=0, max=9999, default=0,
-                                 tooltip="Unique ID for temporal smoothing state (share across frames in same video sequence)"),
+                                 default="0",
+                                 tooltip="Unique ID for temporal smoothing (share across frames in same video sequence). Use '0' for image mode."),
                     ComboInput("classifier_type",
                                options=["default", "alternative"],
                                behavior=InputBehavior.optional),
@@ -404,7 +415,7 @@ if COMFY_V3:
             )
 
         @classmethod
-        def _get_temporal(cls, instance_id: int, smoothing: int) -> TemporalState:
+        def _get_temporal(cls, instance_id: str, smoothing: int) -> TemporalState:
             key = f"{instance_id}"
             if key not in cls._temporal_state:
                 alpha = smoothing / 100.0 if smoothing > 0 else 1.0
@@ -447,14 +458,14 @@ if COMFY_V3:
             face_output_format: str = "strip",
             temporal_smoothing=70,
             output_height=512,
-            instance_id=0,
+            instance_id="0",
             classifier_type: str = "default",
             padding=0,
         ) -> NodeOutput:
             # Defensive: coerce INT inputs that may arrive as strings
             temporal_smoothing = _coerce_int(temporal_smoothing, "temporal_smoothing", 70)
             output_height = _coerce_int(output_height, "output_height", 512)
-            instance_id = _coerce_int(instance_id, "instance_id", 0)
+            instance_id = str(instance_id) if instance_id is not None else "0"
             padding = _coerce_int(padding, "padding", 0)
 
             target_ratio = ASPECT_RATIOS.get(aspect_ratio, None)
@@ -687,9 +698,9 @@ class FaceDetectionNodeV1:
                 "output_height": ("INT", {
                     "default": 512, "min": 256, "max": 2048,
                 }),
-                "instance_id": ("INT", {
-                    "default": 0, "min": 0, "max": 9999,
-                    "tooltip": "Unique ID for temporal smoothing across video frames",
+                "instance_id": ("STRING", {
+                    "default": "0",
+                    "tooltip": "Unique ID for temporal smoothing (share across frames in same video sequence). Use '0' for image mode.",
                 }),
                 # Backward compat: old v1.x workflows pass this
                 "face_output_format": (["strip", "individual"], {
@@ -723,10 +734,10 @@ class FaceDetectionNodeV1:
         framework validation doesn't crash.
         """
         # Coerce INT inputs that may arrive as strings from positional widget mapping
+        # Note: instance_id is now STRING — no longer needs INT coercion
         for name, val in [
             ("temporal_smoothing", temporal_smoothing),
             ("output_height", output_height),
-            ("instance_id", instance_id),
             ("padding", padding),
         ]:
             if val is not None and not isinstance(val, int):
@@ -743,7 +754,7 @@ class FaceDetectionNodeV1:
         return True
 
     @classmethod
-    def _get_temporal(cls, instance_id: int, smoothing: int) -> TemporalState:
+    def _get_temporal(cls, instance_id: str, smoothing: int) -> TemporalState:
         if instance_id not in cls._temporal_cache:
             alpha = smoothing / 100.0 if smoothing > 0 else 1.0
             cls._temporal_cache[instance_id] = TemporalState(alpha=alpha)
@@ -768,9 +779,10 @@ class FaceDetectionNodeV1:
     ):
         # Defensive: coerce optional INT inputs that may arrive as strings
         # from legacy workflows with misaligned widgets_values
+        # Note: instance_id is now STRING — coerce to str, not int
         temporal_smoothing = _coerce_int(temporal_smoothing, "temporal_smoothing", 0)
         output_height = _coerce_int(output_height, "output_height", 512)
-        instance_id = _coerce_int(instance_id, "instance_id", 0)
+        instance_id = str(instance_id) if instance_id is not None else "0"
         padding = _coerce_int(padding, "padding", 0)
         cascade = CascadeCache.get(classifier_type)
         if cascade is None:
