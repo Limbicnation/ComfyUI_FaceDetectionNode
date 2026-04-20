@@ -2,15 +2,15 @@
     "custom_nodes": [
         {
             "author": "Limbicnation",
-            "title": "ComfyUI Face Detection Node",
+            "title": "ComfyUI Face Detection Node v2",
             "reference": "https://github.com/Limbicnation/ComfyUI_FaceDetectionNode",
             "files": [
                 "https://github.com/Limbicnation/ComfyUI_FaceDetectionNode"
             ],
             "install_type": "git-clone",
-            "description": "A ComfyUI custom node for face detection and cropping using OpenCV Haar cascades, with full ComfyUI v3 schema support and backward compatibility.",
+            "description": "H100-optimized face detection with Auto-Padding, Temporal Smoothing, Aspect Ratio Presets, and full batch processing for LTX-Video avatar pipelines.",
             "nodes": [
-                "Face Detection and Crop"
+                "Face Detection and Crop v2"
             ],
             "nodename_pattern": "FaceDetectionNode"
         }
