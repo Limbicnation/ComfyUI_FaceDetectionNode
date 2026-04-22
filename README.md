@@ -73,6 +73,10 @@ When processing video frames through ComfyUI, face detection bboxes can jitter f
 
 ## Changelog
 
+### v2.1.3
+- **FIX**: `VALIDATE_INPUTS` now includes required combo fields (`aspect_ratio`, `output_mode`, `classifier_type`) in its signature, forcing ComfyUI to delegate their validation to our method instead of doing strict framework-level "Value not in list" checks. Legacy workflows with misaligned positional `widgets_values` (e.g. `'auto'` landing on `output_mode`, `0` landing on `classifier_type`) are now caught and replaced with defaults.
+- **FIX**: Added defensive combo sanitization in both v1 and v3 execute methods — invalid combo values are replaced with defaults at runtime as a safety net.
+
 ### v2.1.2
 - **FIX**: `instance_id` input type changed from INT to STRING. Legacy workflows pass `instance_id="default"` (string) from old v1 nodes — ComfyUI's `validate_inputs` runs before `execute()`, so `_coerce_int` never fires. Since `instance_id` is only a dict key, STRING is the correct type.
 
