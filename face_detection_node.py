@@ -1,7 +1,20 @@
 """
 FaceDetectionNode — Optimized for H100 Cloud & LTX-Video Avatar Pipelines
 ========================================================================
-Version: 2.1.2
+Version: 2.1.3
+
+CHANGELOG from v2.1.2 → v2.1.3:
+  1. FIX: VALIDATE_INPUTS now includes required combo fields (aspect_ratio,
+     output_mode, classifier_type) in its signature. This causes ComfyUI to
+     delegate their validation to our method instead of doing strict
+     framework-level "Value not in list" checks. Legacy workflows with
+     misaligned positional widgets_values (e.g. 'auto' landing on output_mode,
+     0 landing on classifier_type) are now caught and replaced with defaults.
+  2. Added _VALID_OUTPUT_MODES, _VALID_CLASSIFIER_TYPES, _VALID_ASPECT_RATIOS
+     tuples and their defaults for consistent validation across VALIDATE_INPUTS
+     and both v1/v3 execute methods.
+  3. Added defensive combo sanitization in v1 and v3 execute methods — invalid
+     values are replaced with defaults at runtime as a safety net.
 
 CHANGELOG from v2.1.1 → v2.1.2:
   1. FIX: instance_id input type changed from INT to STRING. Legacy workflows
@@ -95,6 +108,12 @@ ASPECT_RATIOS: dict[str, Optional[float]] = {
 # ──────────────────────────────────────────────────────────────────────────────
 _VALID_FACE_OUTPUT_FORMATS = ("strip", "individual")
 _DEFAULT_FACE_OUTPUT_FORMAT = "strip"
+_VALID_OUTPUT_MODES = ("largest_face", "all_faces")
+_DEFAULT_OUTPUT_MODE = "largest_face"
+_VALID_CLASSIFIER_TYPES = ("default", "alternative")
+_DEFAULT_CLASSIFIER_TYPE = "default"
+_VALID_ASPECT_RATIOS = ("auto", "1:1", "9:16", "16:9", "4:3")
+_DEFAULT_ASPECT_RATIO = "auto"
 
 # Default values for INT inputs — used by _coerce_int when legacy workflows
 # pass string values (e.g. "default" from classifier_type) into INT slots.
@@ -468,6 +487,21 @@ if COMFY_V3:
             instance_id = str(instance_id) if instance_id is not None else "0"
             padding = _coerce_int(padding, "padding", 0)
 
+            # Defensive: sanitize combo fields that may have wrong values from
+            # legacy workflows with misaligned positional widgets_values
+            if aspect_ratio not in _VALID_ASPECT_RATIOS:
+                logger.warning("FaceDetectionNode: aspect_ratio='%s' invalid, using '%s'",
+                               aspect_ratio, _DEFAULT_ASPECT_RATIO)
+                aspect_ratio = _DEFAULT_ASPECT_RATIO
+            if output_mode not in _VALID_OUTPUT_MODES:
+                logger.warning("FaceDetectionNode: output_mode='%s' invalid, using '%s'",
+                               output_mode, _DEFAULT_OUTPUT_MODE)
+                output_mode = _DEFAULT_OUTPUT_MODE
+            if classifier_type not in _VALID_CLASSIFIER_TYPES:
+                logger.warning("FaceDetectionNode: classifier_type='%s' invalid, using '%s'",
+                               classifier_type, _DEFAULT_CLASSIFIER_TYPE)
+                classifier_type = _DEFAULT_CLASSIFIER_TYPE
+
             target_ratio = ASPECT_RATIOS.get(aspect_ratio, None)
 
             # Resolve padding: legacy padding (px) overrides auto_padding_ratio if > 0
@@ -676,13 +710,13 @@ class FaceDetectionNodeV1:
                     "default": 35, "min": 0, "max": 100,
                     "tooltip": "Padding as % of detected face size",
                 }),
-                "aspect_ratio": ([["auto", "1:1", "9:16", "16:9", "4:3"]], {
+                "aspect_ratio": (["auto", "1:1", "9:16", "16:9", "4:3"], {
                     "default": "auto",
                 }),
-                "output_mode": ([["largest_face", "all_faces"]], {
+                "output_mode": (["largest_face", "all_faces"], {
                     "default": "largest_face",
                 }),
-                "classifier_type": ([["default", "alternative"]], {
+                "classifier_type": (["default", "alternative"], {
                     "default": "default",
                 }),
             },
@@ -723,16 +757,40 @@ class FaceDetectionNodeV1:
     DESCRIPTION = "Face Detection v2 — Auto-Padding, Temporal Smoothing, Aspect Ratios, Batch Processing"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, face_output_format=None, padding=None,
-                        temporal_smoothing=None, output_height=None,
-                        instance_id=None, **kwargs):
-        """Validate optional inputs — gracefully handle type mismatches.
+    def VALIDATE_INPUTS(cls, aspect_ratio=None, output_mode=None,
+                        classifier_type=None, face_output_format=None,
+                        padding=None, temporal_smoothing=None,
+                        output_height=None, instance_id=None, **kwargs):
+        """Validate all combo and optional inputs — gracefully handle type mismatches.
 
         When ComfyUI loads an old workflow, widgets_values are mapped positionally.
-        This can cause string values (e.g. 'default' from classifier_type) to land
-        on INT-typed inputs. We coerce or fall back to defaults here so the
-        framework validation doesn't crash.
+        This can cause string values (e.g. 'auto' from aspect_ratio) to land on
+        output_mode, or 'largest_face' to land on face_output_format. We validate
+        and replace invalid values with defaults so the framework doesn't crash.
+
+        By including required combo fields (aspect_ratio, output_mode,
+        classifier_type) in this method signature, ComfyUI delegates their
+        validation to us instead of doing strict framework-level checking.
         """
+        # Validate required combo fields (may receive wrong values from
+        # positional widget mapping in legacy workflows)
+        for name, val, valid_set, default in [
+            ("aspect_ratio", aspect_ratio,
+             _VALID_ASPECT_RATIOS, _DEFAULT_ASPECT_RATIO),
+            ("output_mode", output_mode,
+             _VALID_OUTPUT_MODES, _DEFAULT_OUTPUT_MODE),
+            ("classifier_type", classifier_type,
+             _VALID_CLASSIFIER_TYPES, _DEFAULT_CLASSIFIER_TYPE),
+            ("face_output_format", face_output_format,
+             _VALID_FACE_OUTPUT_FORMATS, _DEFAULT_FACE_OUTPUT_FORMAT),
+        ]:
+            if val is not None and val not in valid_set:
+                logger.warning(
+                    "FaceDetectionNode: invalid %s='%s', "
+                    "using '%s' instead. Valid: %s",
+                    name, val, default, list(valid_set),
+                )
+
         # Coerce INT inputs that may arrive as strings from positional widget mapping
         # Note: instance_id is now STRING — no longer needs INT coercion
         for name, val in [
@@ -743,14 +801,6 @@ class FaceDetectionNodeV1:
             if val is not None and not isinstance(val, int):
                 _coerce_int(val, name)  # logs warning on failure, returns default
 
-        if face_output_format is not None:
-            if face_output_format not in _VALID_FACE_OUTPUT_FORMATS:
-                logger.warning(
-                    "FaceDetectionNode: invalid face_output_format='%s', "
-                    "using '%s' instead. Valid: %s",
-                    face_output_format, _DEFAULT_FACE_OUTPUT_FORMAT,
-                    list(_VALID_FACE_OUTPUT_FORMATS),
-                )
         return True
 
     @classmethod
@@ -784,6 +834,26 @@ class FaceDetectionNodeV1:
         output_height = _coerce_int(output_height, "output_height", 512)
         instance_id = str(instance_id) if instance_id is not None else "0"
         padding = _coerce_int(padding, "padding", 0)
+
+        # Defensive: sanitize combo fields that may have wrong values from
+        # legacy workflows with misaligned positional widgets_values
+        if aspect_ratio not in _VALID_ASPECT_RATIOS:
+            logger.warning("FaceDetectionNode: aspect_ratio='%s' invalid, using '%s'",
+                           aspect_ratio, _DEFAULT_ASPECT_RATIO)
+            aspect_ratio = _DEFAULT_ASPECT_RATIO
+        if output_mode not in _VALID_OUTPUT_MODES:
+            logger.warning("FaceDetectionNode: output_mode='%s' invalid, using '%s'",
+                           output_mode, _DEFAULT_OUTPUT_MODE)
+            output_mode = _DEFAULT_OUTPUT_MODE
+        if classifier_type not in _VALID_CLASSIFIER_TYPES:
+            logger.warning("FaceDetectionNode: classifier_type='%s' invalid, using '%s'",
+                           classifier_type, _DEFAULT_CLASSIFIER_TYPE)
+            classifier_type = _DEFAULT_CLASSIFIER_TYPE
+        if face_output_format not in _VALID_FACE_OUTPUT_FORMATS:
+            logger.warning("FaceDetectionNode: face_output_format='%s' invalid, using '%s'",
+                           face_output_format, _DEFAULT_FACE_OUTPUT_FORMAT)
+            face_output_format = _DEFAULT_FACE_OUTPUT_FORMAT
+
         cascade = CascadeCache.get(classifier_type)
         if cascade is None:
             logger.error("No cascade available")
@@ -799,14 +869,6 @@ class FaceDetectionNodeV1:
             logger.info("FaceDetectionNode: legacy padding=%dpx → ratio=%.2f", padding, pad_ratio)
         else:
             pad_ratio = auto_padding_ratio / 100.0
-
-        # Resolve face_output_format with fallback
-        if face_output_format not in _VALID_FACE_OUTPUT_FORMATS:
-            logger.warning(
-                "FaceDetectionNode: invalid face_output_format='%s', using '%s'",
-                face_output_format, _DEFAULT_FACE_OUTPUT_FORMAT,
-            )
-            face_output_format = _DEFAULT_FACE_OUTPUT_FORMAT
 
         detect_all = (output_mode == "all_faces")
 
