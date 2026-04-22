@@ -870,14 +870,6 @@ class FaceDetectionNodeV1:
         else:
             pad_ratio = auto_padding_ratio / 100.0
 
-        # Resolve face_output_format with fallback
-        if face_output_format not in _VALID_FACE_OUTPUT_FORMATS:
-            logger.warning(
-                "FaceDetectionNode: invalid face_output_format='%s', using '%s'",
-                face_output_format, _DEFAULT_FACE_OUTPUT_FORMAT,
-            )
-            face_output_format = _DEFAULT_FACE_OUTPUT_FORMAT
-
         detect_all = (output_mode == "all_faces")
 
         temporal = self._get_temporal(instance_id, temporal_smoothing)
